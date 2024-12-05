@@ -23,6 +23,17 @@ import json
 # MAGIC %md
 # MAGIC ## 02. Make Dictionary
 
+####################### js추가
+import sys  # 추가: Node.js에서 인자를 받기 위해 사용
+
+# Node.js에서 이미지 저장 경로를 전달받음
+if len(sys.argv) < 2:
+    print("Error: Output file path not provided.")
+    sys.exit(1)
+
+output_file_path = sys.argv[1]  # Node.js에서 전달받은 출력 경로
+
+###js추가
 def load_data(matlab_data):
   mat = loadmat(matlab_data)
 
@@ -67,7 +78,7 @@ def load_data(matlab_data):
           pd.DataFrame(data=capacity_data,
                        columns=['cycle', 'ambient_temperature', 'date_time', 'capacity'])]
 
-dataset, capacity = load_data("battery_soh_prediction\B0005.mat") #경로 설정 주의!!!
+dataset, capacity = load_data("B0005.mat") #경로 설정 주의!!!
 pd.set_option('display.max_columns', 10)
 
 
@@ -157,7 +168,7 @@ lstm_model.fit(x=train_dataset, y=soh.to_numpy(), batch_size=25, epochs=50)
 # MAGIC %md
 # MAGIC ## Test Model SoH Prediction
 # MAGIC B0006
-dataset_val, capacity_val = load_data('battery_soh_prediction\B0006.mat') #경로 설정 주의!!
+dataset_val, capacity_val = load_data('B0006.mat') #경로 설정 주의!!
 attrib=['cycle', 'date_time', 'capacity']
 dis_ele = capacity_val[attrib]
 C = dis_ele['capacity'][0]
@@ -201,9 +212,9 @@ plt.xlabel('cycle')
 plt.legend()
 plt.title('Discharge B0006')
 
-plt.show()
+plt.savefig(output_file_path)  # 전달받은 경로에 이미지 저장#plt.savefig("./aimg/battery_soh_capacity.jpg") ###############################이 부분이 이미지를 보여줌
 
-dataset_val, capacity_val = load_data('battery_soh_prediction\B0005.mat') #경로 설정 주의!!
+dataset_val, capacity_val = load_data('B0005.mat') #경로 설정 주의!!
 attrib=['cycle', 'date_time', 'capacity']
 dis_ele = capacity_val[attrib]
 rows=['cycle','capacity']

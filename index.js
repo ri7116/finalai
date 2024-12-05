@@ -1,48 +1,68 @@
 const express = require("express");
 const { spawn } = require("child_process");
+const fs = require("fs"); // 파일 시스템 모듈 추가
+const path = require("path");
 const app = express();
 const port = 4000;
-const path = require("path");
 
-app.get("/ai", (req, res) => {
-  console.log("ai url 호출");
+app.use(express.json()); // JSON 요청 파싱
+//나중에 포스트로
+app.post("/ai", (req, res) => {
+  //이미지 생성
+  console.log("AI URL 호출");
 
-  // Node.js에서 Python으로 전달할 JSON 데이터
-  let realdata = {
-    a: 1,
-    b: 2,
-    c: 3,
-    d: 4,
-    e: 5,
-    f: 6,
-    g: 7,
-  };
+  // 요청에서 유저의 PK(ID) 가져오기
+  const userId = req.body.device_number; // 클라이언트에서 post로 device넘버를 보내야됨
+  if (!userId) {
+    return res.status(400).send("기기 번호가 필요합니다.");
+  }
 
-  // Python 스크립트를 실행 (우분투에서는 python3 사용)
-  const pythonOne = spawn("python", ["file1.py"]);
+  // 파일명 생성 (유저 ID 기반)
+  const outputFileName = `${userId}.png`; // 파일명 생성
+  const outputFilePath = path.resolve("./aimg", outputFileName); // 저장 경로
 
-  // JSON 데이터를 문자열로 직렬화하여 Python으로 전달
-  pythonOne.stdin.write(JSON.stringify(realdata));
-  pythonOne.stdin.end();
+  // Python 스크립트 실행
+  const pythonOne = spawn("python", ["lstm.py", outputFilePath]);
 
-  //ai Python 코드 진입
-  // Python 출력 처리
-  let pythonOutput = ""; // Python 출력 데이터를 저장할 변수
+  let pythonOutput = ""; // Python 출력 저장
+
+  // Python stdout 데이터 수신
   pythonOne.stdout.on("data", (data) => {
-    pythonOutput += data.toString(); // Python의 표준 출력을 읽음
+    pythonOutput += data.toString();
   });
 
-  // Python 프로세스 종료 후 클라이언트 응답 전송
-  pythonOne.on("close", (code) => {
-    console.log(`Python process exited with code ${code}`);
-    res.send(`Python Output: ${pythonOutput}`); // Python의 결과를 클라이언트로 응답 ##파이썬 실행 테스트
-    //res.sendFile(path.join(__dirname, "aimg", "test.jpg")); //dirname은 절대경로임
-  });
-
-  // Python 에러 처리
+  // Python stderr 데이터 (에러 처리)
   pythonOne.stderr.on("data", (data) => {
     console.error(`Python Error: ${data.toString()}`);
   });
+
+  // Python 프로세스 종료 후 응답 전송
+  pythonOne.on("close", (code) => {
+    console.log(`Python process exited with code ${code}`);
+    console.log(`이미지 저장 경로: ${outputFilePath}`);
+
+    // 이미지 생성 완료 응답
+    res.json({ id: userId, file: outputFileName });
+  });
 });
 
-app.listen(port, () => console.log(`서버 가동 on port ${port}`));
+// 이미지 전송
+app.post("/image", (req, res) => {
+  const device = req.body.device_number; // URL에서 유저 ID 추출
+  const filePath = path.resolve("./aimg", `${device}.png`);
+  console.log(req.body.device_number);
+  // 파일 존재 여부 확인
+  fs.access(filePath, fs.constants.F_OK, (err) => {
+    if (err) {
+      console.error(`파일 없음: ${filePath}`);
+      return res.status(404).send("이미지 파일을 찾을 수 없습니다.");
+    }
+
+    console.log(`이미지 전송: ${filePath}`);
+    res.sendFile(filePath);
+  });
+});
+
+app.listen(port, () => {
+  console.log(`서버 실행 중: http://localhost:${port}`);
+});
