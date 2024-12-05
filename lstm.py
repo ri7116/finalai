@@ -27,35 +27,43 @@ import json
 import sys  # 추가: Node.js에서 인자를 받기 위해 사용
 
 # Node.js에서 이미지 저장 경로를 전달받음
-if len(sys.argv) < 2:
-    print("Error: Output file path not provided.")
-    sys.exit(1)
 
+
+if len(sys.argv) < 2:
+     #print("Error: Output file path not provided.")
+     sys.exit(1)
 output_file_path = sys.argv[1]  # Node.js에서 전달받은 출력 경로
 
+###!! 데이터베이스 연동 해서 넘겨줘야됨 input_data=np.array([[a,b,c,d,e,f,g]]) #넣어야 하는 값
+###!! 데이터베이스 연동해서 넘기고 확인해야됨 print(input_data)
+
+
 ###js추가
+
+
 def load_data(matlab_data):
   mat = loadmat(matlab_data)
 
   # '__'로 시작하지 않는 키를 찾아서 사용
   filename = [key for key in mat.keys() if not key.startswith('_')][0]
 
-  print('Total data in dataset: ', len(mat[filename][0, 0]['cycle'][0]))
+  #print('Total data in dataset: ', len(mat[filename][0, 0]['cycle'][0])) # B0005에 존재하는 사이클의 개수 출력
   counter = 0
   dataset = []
   capacity_data = []
 
-  for i in range(len(mat[filename][0, 0]['cycle'][0])):
-    row = mat[filename][0, 0]['cycle'][0, i]
-    if row['type'][0] == 'discharge':
-      ambient_temperature = row['ambient_temperature'][0][0]
+  for i in range(len(mat[filename][0, 0]['cycle'][0])): #사이클의 개수만큼 반복
+    row = mat[filename][0, 0]['cycle'][0, i]  #사이클의 데이터를 가져온다
+    if row['type'][0] == 'discharge':   #주기가 방전인 경우만 처리
+      ambient_temperature = row['ambient_temperature'][0][0] #방전일 때의 온도 추출
       date_time = datetime.datetime(int(row['time'][0][0]),
                                int(row['time'][0][1]),
                                int(row['time'][0][2]),
                                int(row['time'][0][3]),
                                int(row['time'][0][4])) + datetime.timedelta(seconds=int(row['time'][0][5]))
       data = row['data']
-      capacity = data[0][0]['Capacity'][0][0]
+      capacity = data[0][0]['Capacity'][0][0] #방전 데이터에서 capacity정보 추출
+      #방전 데이터의 길이만큼 반복하며 상세 데이터 처리. 각 시점에서의 측정된 전압, 온도, 부하 전압 시간 추출한다.
       for j in range(len(data[0][0]['Voltage_measured'][0])):
         voltage_measured = data[0][0]['Voltage_measured'][0][j]
         current_measured = data[0][0]['Current_measured'][0][j]
@@ -63,14 +71,17 @@ def load_data(matlab_data):
         current_load = data[0][0]['Current_load'][0][j]
         voltage_load = data[0][0]['Voltage_load'][0][j]
         time = data[0][0]['Time'][0][j]
+        #세부 데이터를 dataset 리스트에 저장
         dataset.append([counter + 1, ambient_temperature, date_time, capacity,
                         voltage_measured, current_measured,
                         temperature_measured, current_load,
                         voltage_load, time])
+      #cycle별로 용량 데이터를 저장하고 cycle 번호를 증가시킨다.
       capacity_data.append([counter + 1, ambient_temperature, date_time, capacity])
       counter = counter + 1
 
-  print(dataset[0])
+  #print(dataset[0]) #변환된 데이터의 첫 번째 행을 출력
+  #dataset과 capacity_data를 각각 데이터프레임으로 변환
   return [pd.DataFrame(data=dataset,
                        columns=['cycle', 'ambient_temperature', 'date_time',
                                 'capacity', 'voltage_measured', 'current_measured', 'temperature_measured',
@@ -79,66 +90,31 @@ def load_data(matlab_data):
                        columns=['cycle', 'ambient_temperature', 'date_time', 'capacity'])]
 
 dataset, capacity = load_data("B0005.mat") #경로 설정 주의!!!
-pd.set_option('display.max_columns', 10)
 
-
-##시작지점 
-print(dataset.head())
-dataset.describe()
-
+#capacity데이터프레임에서 cycle이 1이상인 행만 선택. cycle, capacity열을 포함하는 새로운 데이터프레임 생성
 plot_df = capacity.loc[(capacity['cycle']>=1),['cycle','capacity']]
-sns.set_style("whitegrid")
-#deep, muted, pastel, bright, dark, colorblind
-sns.set_palette('bright')
-plt.figure(figsize=(12, 8))
-plt.plot(plot_df['cycle'], plot_df['capacity'])
-#Draw threshold
-plt.plot([0.,len(capacity)], [1.4, 1.4])
-plt.ylabel('Capacity')
-# make x-axis ticks legible
-adf = plt.gca().get_xaxis().get_major_formatter()
-plt.xlabel('cycle')
-plt.title('file=B0005 | type=discharge')
 
-attrib=['cycle', 'date_time', 'capacity']
+attrib=['cycle', 'date_time', 'capacity'] #capacity 데이터 프레임에서 주기, 시간, 용량 열만 선택해서 데이터 프레임 생성
 dis_ele = capacity[attrib]
-C = dis_ele['capacity'][0]
-for i in range(len(dis_ele)):
-    dis_ele['SOH']=(dis_ele['capacity'])/C
-print(dis_ele.head(5))
-
-dis_ele.describe()
-
-plot_df = dis_ele.loc[(dis_ele['cycle']>=1),['cycle','SOH']]
-sns.set_style("whitegrid")
-#deep, muted, pastel, bright, dark, colorblind
-sns.set_palette('bright')
-plt.figure(figsize=(12, 8))
-plt.plot(plot_df['cycle'], plot_df['SOH'])
-#Draw threshold
-plt.plot([0.,len(capacity)], [0.70, 0.70])
-plt.ylabel('SOH')
-# make x-axis ticks legible
-adf = plt.gca().get_xaxis().get_major_formatter()
-plt.xlabel('cycle')
-plt.title('file=B0005 | type=discharge')
+C = dis_ele['capacity'][0] # 첫 번째 주기의 배터리 용량을C로 저장 이 값을 기준으로 soh계산
+for i in range(len(dis_ele)): #각 주기의 soh를 계산
+    dis_ele['SOH']=(dis_ele['capacity'])/C #새로운 열 SOH를 데이터 프레임에 추가
 
 C = dataset['capacity'][0]
 soh = []
-for i in range(len(dataset)):
+for i in range(len(dataset)): #dataset의 각 주기에 대해 soh를 계산하여 리스트 soh에 추가
   soh.append([dataset['capacity'][i] / C])
-soh = pd.DataFrame(data=soh, columns=['SOH'])
+soh = pd.DataFrame(data=soh, columns=['SOH']) #SOH 리스트를 SOH열을 가진 데이터프레임을 변환
 
 attribs=['capacity', 'voltage_measured', 'current_measured',
          'temperature_measured', 'current_load', 'voltage_load', 'time']
-train_dataset = dataset[attribs]
-sc = MinMaxScaler(feature_range=(0,1))
-train_dataset = sc.fit_transform(train_dataset)
-print(train_dataset.shape)
-print(soh.shape)
+train_dataset = dataset[attribs] #학습에 필용한 열(attribs)을 선택하여 훈련용 데이터 생성
+sc = MinMaxScaler(feature_range=(0,1)) #훈련용 데이터를 0~1로 정규화. 최소값을0, 최댓값을1로 변환
 
-# MAGIC %md
-# MAGIC ADAM optimizer
+train_dataset = sc.fit_transform(train_dataset)
+
+
+#print(train_dataset.shape)
 
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
@@ -148,41 +124,50 @@ from tensorflow.keras.layers import Flatten
 from tensorflow.keras.layers import LSTM
 from tensorflow.keras.optimizers import Adam
 
-# MAGIC %md
 # MAGIC ## LSTM-Based Modeling
 
-lstm_model = Sequential()
+lstm_model = Sequential() #Sequential 모델 초기화. 계층을 순차적으로 추가할 수 있는 형태
+#첫번째 레이어. 뉴런8개, 활성화 함수:ReLU, 입력 크기:train_dataset의 열 개수
 lstm_model.add(Dense(8, activation='relu', input_dim=train_dataset.shape[1]))
 lstm_model.add(Dense(8, activation='relu'))
 lstm_model.add(Dense(8, activation='relu'))
-lstm_model.add(Dropout(rate=0.25))
-lstm_model.add(Dense(1))
-lstm_model.summary()
+lstm_model.add(Dropout(rate=0.25)) #dropout레이어 추가하여 과적합방지, 뉴련 출력을 25%확률로 무시
+lstm_model.add(Dense(1)) #최종 레이어. 활성화 함수가 없음으로 기본값(선형 활성화 함수)사용soh예측 하는 역할
+#Adam옵티마이저 사용. 실제 soh와 예측된 soh사이의 절대 오차 계산
 lstm_model.compile(optimizer=Adam(beta_1=0.9, beta_2=0.999, epsilon=1e-08), loss='mean_absolute_error')
 
-# MAGIC %md
-# MAGIC Train Model
+lstm_model.fit(x=train_dataset, y=soh.to_numpy(), batch_size=25, epochs=50) #배치크기:25, 에폭50(제이터 전체를 50번 학습)
 
-lstm_model.fit(x=train_dataset, y=soh.to_numpy(), batch_size=25, epochs=50)
-
-# MAGIC %md
-# MAGIC ## Test Model SoH Prediction
-# MAGIC B0006
-dataset_val, capacity_val = load_data('B0006.mat') #경로 설정 주의!!
+dataset_val, capacity_val = load_data('B0005.mat') #경로 설정 주의!!===이 부분에 서버에서 넘어온 차량의 데이터를 추가해준다!!
 attrib=['cycle', 'date_time', 'capacity']
-dis_ele = capacity_val[attrib]
+dis_ele = capacity_val[attrib] #capacity_val에서 attrib리스트에 지정된 컬럼만 추출하여 새로운 데이터 프레임 생성 (168 x 4)
 C = dis_ele['capacity'][0]
+
 for i in range(len(dis_ele)):
     dis_ele['SOH']=(dis_ele['capacity']) / C
-print(dataset_val.head(5))
-print(dis_ele.head(5))
 
-
-#LSTM 모델
+#MAGIC ## Test Model SoH Prediction
+#dataset_val[attrib]을 MinMaxScaler로 정규화하고, 이를 모델의 입력으로 사용
 attrib=['capacity', 'voltage_measured', 'current_measured',
         'temperature_measured', 'current_load', 'voltage_load', 'time']
+#print("dataset_val shape: ",dataset_val[attrib].shape) # 50285 x 7
+
+#모델 입력에 필요한 열(attrib)만 선택. 다음 정보 포함:[capacity,voltage_measured,current_measured,temperature_measured,current_load,voltage_load,time]
+#sc:MinMaxScalaer객체. 0~1로 정규화
+#predict():딥러닝 라이브러리 제공 함수
+
 soh_pred = lstm_model.predict(sc.fit_transform(dataset_val[attrib]))
-print(soh_pred.shape)
+
+input_data = np.array([[60000, 407.4, -0.0014, 24.0, 0, 407.4, 2500]])
+result = np.concatenate([train_dataset, input_data], axis=0)
+
+sc = MinMaxScaler(feature_range=(0,1))
+sc.fit(result)
+new_data = sc.transform(result)
+scaled_data=new_data[-1:]
+soh_pred_test = lstm_model.predict(scaled_data)
+
+#print("Predicted SOH:", soh_pred_test[0][0]) #예측된 soh값================================여기 주목!!!!!
 
 C = dataset_val['capacity'][0]
 soh = []
@@ -192,29 +177,8 @@ new_soh1 = dataset_val.loc[(dataset_val['cycle'] >= 1), ['cycle']]
 new_soh1['SOH'] =  soh
 new_soh1['NewSOH'] = soh_pred
 new_soh1 = new_soh1.groupby(['cycle']).mean().reset_index()
-print(new_soh1.head(10))
-rms = np.sqrt(mean_squared_error(new_soh1['SOH'], new_soh1['NewSOH']))
-print('Root Mean Square Error: ', rms)
 
-#LSTM 예측
-plot_df1 = new_soh1.loc[(new_soh1['cycle']>=1),['cycle','SOH', 'NewSOH']]
-sns.set_style("white")
-plt.figure(figsize=(16, 10))
-plt.plot(plot_df1['cycle'], plot_df1['SOH'], label='SOH')
-plt.plot(plot_df1['cycle'], plot_df1['NewSOH'], label='LSTM_Predicted SOH')
-
-#Draw threshold
-plt.plot([0.,len(capacity)], [0.70, 0.70], label='Threshold')
-plt.ylabel('SOH')
-# make x-axis ticks legible
-adf = plt.gca().get_xaxis().get_major_formatter()
-plt.xlabel('cycle')
-plt.legend()
-plt.title('Discharge B0006')
-
-plt.savefig(output_file_path)  # 전달받은 경로에 이미지 저장#plt.savefig("./aimg/battery_soh_capacity.jpg") ###############################이 부분이 이미지를 보여줌
-
-dataset_val, capacity_val = load_data('B0005.mat') #경로 설정 주의!!
+dataset_val, capacity_val = load_data('B0005.mat')
 attrib=['cycle', 'date_time', 'capacity']
 dis_ele = capacity_val[attrib]
 rows=['cycle','capacity']
@@ -249,11 +213,11 @@ regress1.add(LSTM(units=200))
 regress1.add(Dropout(0.3))
 regress1.add(Dense(units=1))
 regress1.compile(optimizer='adam',loss='mean_squared_error')
-regress1.summary()
+#regress1.summary()
 
 regress1.fit(X_train,y_train,epochs=200,batch_size=25)
 
-print(len(data_test))
+#print(len(data_test))
 data_total=pd.concat((data_train['capacity'], data_test['capacity']),axis=0)
 inputs=data_total[len(data_total)-len(data_test)-10:].values
 inputs=inputs.reshape(-1,1)
@@ -266,23 +230,51 @@ for i in range(10,129):
 X_test=np.array(X_test)
 X_test=np.reshape(X_test,(X_test.shape[0],X_test.shape[1],1))
 pred1=regress1.predict(X_test)
-print(pred1.shape)
+#print(pred1.shape)
 pred1=sc.inverse_transform(pred1)
 pred1=pred1[:,0]
 tests=data_test.iloc[:,1:2]
 rmse = np.sqrt(mean_squared_error(tests, pred1))
-print('Test RMSE: %.3f' % rmse)
+#print('Test RMSE: %.3f' % rmse)
 metrics.r2_score(tests,pred1)
+
+def correction(pred, cycles, slope=-0.0009, intercept=0.02):
+    """
+    Cycle에 따라 보정값을 추가하여 예측된 Capacity에 적용합니다.
+    Args:
+        pred: 모델이 예측한 SOH 값 배열
+        cycles: 각 예측 값에 해당하는 Cycle 값 배열
+        slope: Cycle 보정의 기울기 (Cycle이 증가함에 따라 보정값이 감소)
+        intercept: 보정값의 초기값
+    Returns:
+        보정된 예측 SOH 값 배열
+    """
+    # 보정값 계산
+    corrections = slope * cycles + intercept
+    # 예측값에 보정값 적용
+    corrected_pred = pred + corrections
+    return corrected_pred
+# Cycle에 따른 보정값 적용
+
+data_test = data_test.copy()  # 원본 데이터가 변경되지 않도록 복사본 사용
+data_test['cycle'] = data_test.index  # Cycle 값을 설정 (예시 값)
+
+# 보정된 예측값 계산
+corrected_pred = correction(pred1, data_test['cycle'].values)
+
+
+# 결과 확인 및 보정된 예측값 추가
+data_test.loc[:, 'Corrected'] = corrected_pred
 
 ln = len(data_train)
 data_test['pre']=pred1
 plot_df = dataset.loc[(dataset['cycle']>=1),['cycle','capacity']] #실제 데이터
 
-plot_per = data_test.loc[(data_test['cycle']>=ln),['cycle','pre']]
+plot_per = data_test.loc[(data_test['cycle']>=ln),['cycle','Corrected']]
 plt.figure(figsize=(16, 10))
-plt.plot(plot_df['cycle'], plot_df['capacity'], label="Actual data", color='blue') #실제 데이터
+#plt.plot(plot_df['cycle'], plot_df['capacity'], label="Actual data", color='blue') #실제 데이터
 
-plt.plot(plot_per['cycle'],plot_per['pre'],label="LSTM_Prediction data", color='red') #LSTM모델인 경우
+plt.plot(plot_per['cycle'],plot_per['Corrected'],label="LSTM_Prediction data", color='red') #LSTM모델인 경우
 
 #Draw threshold
 plt.plot([0.,168], [1.38, 1.38],dashes=[6, 2], label="treshold")
@@ -291,31 +283,8 @@ plt.ylabel('Capacity')
 adf = plt.gca().get_xaxis().get_major_formatter()
 plt.xlabel('cycle')
 plt.legend()
-plt.title('file=B0005 | type=discharge -RULe=-8, window-size=10')
+plt.title('SOH Prediction')
 
-#특정 임계값을 기준으로 배터리의 성능 저하를 예측.
-#실제 성능과 예측된 성능을 비교하여 배터리가 기준 임계점 이하로 떨어지는 사이클 시점을 각각 찾고 그 차이를 통해 잔존 수명 예측 오류(RUL error)를 계산하는 코드
-pred=0
-Afil=0
-Pfil=0
-a=data_test['capacity'].values # 실제 배터리 용량 값을 배열로 가져옴
-b=data_test['pre'].values # 예측된 배터리 용량 값을 배열로 가져옴
-j=0 #실제 값에서 임계점 이하인 사이클의 번호
-k=0 #예측 값에서 임계점 이하인 사이클의 번
-for i in range(len(a)):
-    actual=a[i]
+plt.savefig(output_file_path)  # 전달받은 경로에 이미지 저장#plt.savefig("./aimg/battery_soh_capacity.jpg") 
 
-    if actual<=1.38: #임계값 1.38로 설정
-        j=i
-        Afil=j
-        break
-for i in range(len(a)):
-    pred=b[i]
-    if pred< 1.38:
-        k=i
-        Pfil=k
-        break
-print("Actual Fail at Cycle Number: "+ str(Afil+ln))
-print("Prediction Fail at Cycle Number: "+ str(Pfil+ln))
-RULerror=Pfil-Afil
-print("Error of RUL= "+ str(RULerror)+ " Cycles")
+print(float(soh_pred_test[0][0]))

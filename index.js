@@ -6,8 +6,8 @@ const app = express();
 const port = 4000;
 
 app.use(express.json()); // JSON 요청 파싱
-//나중에 포스트로
-app.post("/ai", (req, res) => {
+
+app.post("/predict", (req, res) => {
   //이미지 생성
   console.log("AI URL 호출");
 
@@ -38,11 +38,16 @@ app.post("/ai", (req, res) => {
 
   // Python 프로세스 종료 후 응답 전송
   pythonOne.on("close", (code) => {
-    console.log(`Python process exited with code ${code}`);
-    console.log(`이미지 저장 경로: ${outputFilePath}`);
-
+    //console.log(pythonOutput);
+    const lines = pythonOutput.trim().split("\n"); // 모든 줄을 배열로 분리
+    const lastLine = lines[lines.length - 1]; // 마지막 줄 가져오기
+    //console.log(lastLine);
     // 이미지 생성 완료 응답
-    res.json({ id: userId, file: outputFileName });
+    res.json({
+      device_number: userId,
+      predicted_SOH: lastLine,
+      file: outputFileName,
+    });
   });
 });
 
